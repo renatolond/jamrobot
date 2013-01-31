@@ -2,14 +2,22 @@
 
 #include <SDL/SDL.h>
 
+#include "rgb.h"
+#include "player_controller.h"
+#include "surface.h"
+
 #define SCREEN_WIDTH 640
 #define SCREEN_HEIGHT 256
 
+//--------------------------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 cScrollEngine::cScrollEngine()
 {
   m_game_running = true;
 }
 
+//--------------------------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 void cScrollEngine::run()
 {
   // Call the init function
@@ -29,6 +37,8 @@ void cScrollEngine::run()
   cleanup();
 }
 
+//--------------------------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 void cScrollEngine::init()
 {
   //Start SDL
@@ -44,36 +54,118 @@ void cScrollEngine::init()
   m_screen = SDL_SetVideoMode( SCREEN_WIDTH, SCREEN_HEIGHT, 32, SDL_SWSURFACE );
 
   //Load image
-  m_robo1 = SDL_LoadBMP( "Robo-1.bmp" );
-  SDL_SetColorKey( m_robo1, SDL_SRCCOLORKEY, SDL_MapRGB(m_robo1->format, 255, 0, 255) );
+  m_robo1 = cSurface::load("Robo-1.bmp", sRGB(255, 0, 255));
+  m_robo2 = cSurface::load("Robo-2.bmp", sRGB(255, 0, 255));
+  m_bg = cSurface::load("MarioLevel.bmp");
 
-  m_robo2 = SDL_LoadBMP( "Robo-2.bmp" );
-  SDL_SetColorKey( m_robo2, SDL_SRCCOLORKEY, SDL_MapRGB(m_robo2->format, 255, 0, 255) );
-
-  m_bg = SDL_LoadBMP("MarioLevel.bmp");
+  m_player = new cPlayerController();
 
   m_destination = new SDL_Rect;
   m_destination->x = 0;
   m_destination->y = 0;
-  //m_destination->w = 32;
-  //m_destination->h = 32;
+  m_destination->w = SCREEN_WIDTH;
+  m_destination->h = SCREEN_HEIGHT;
   m_char = m_robo1;
+
+  m_screen_scrolled = 0;
 }
 
 
+//--------------------------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 void cScrollEngine::cleanup()
 {
   delete m_destination;
 
   //Free the loaded image
-  SDL_FreeSurface( m_robo1 );
-  SDL_FreeSurface( m_robo2 );
+  cSurface::free(m_robo1);
+  cSurface::free(m_robo2);
+  cSurface::free(m_bg);
 
   //Quit SDL
   SDL_Quit();
 }
 
+//--------------------------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
+void cScrollEngine::check_for_player_movement()
+{
+  if(KEYS[SDLK_LEFT])
+  {
+    m_destination->x--;
+    if(m_destination->x < 0)
+      m_destination->x = 0;
+    m_char = m_robo1;
+  }
+  if(KEYS[SDLK_RIGHT])
+  {
+    m_destination->x++;
+    if((m_destination->x+m_destination->w) > SCREEN_WIDTH)
+      m_destination->x = SCREEN_WIDTH-m_destination->w;
+    m_char = m_robo2;
+  }
 
+  double max_speed = 2;
+  int side_player_speed = KEYS[SDLK_RIGHT] - KEYS[SDLK_LEFT];
+  double vel_x = side_player_speed * max_speed;
+  m_destination->x += vel_x;
+}
+
+//--------------------------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
+void cScrollEngine::check_for_screen_scrolling()
+{
+  int half_screen_x = SCREEN_WIDTH / 2;
+  int quarter_screen_x = SCREEN_WIDTH / 4;
+  int max_world_x = 2048 - 128;
+  int screen_x = 256;
+  int object_x = 16;
+
+  // If player is reached half screen
+  if(((m_destination->x - m_screen_scrolled) > half_screen_x) && (m_destination->x < max_world_x))
+  {
+    // Screen starts scrolling.
+    m_screen_scrolled = m_destination->x - half_screen_x;
+  }
+  // But if player came before quarter screen
+  else if(((m_destination->x - m_screen_scrolled) < quarter_screen_x) &&
+          (m_destination->x > quarter_screen_x))
+  {
+    // screen starts unrolling.
+    m_screen_scrolled = m_destination->x - quarter_screen_x;
+  }
+
+  //printf("%d\n", m_screen_scrolled);
+
+//  sLevelData *current_level_data = m_level_data_vector[m_current_level];
+//  std::vector<sObject *>& objects = current_level_data->m_objects;
+//  for(unsigned int i(0); i < objects.size(); ++i)
+//  {
+//    sObject *object = objects[i];
+
+//    // if object is on screen.
+//    if((object->m_x <= m_screen_scrolled + screen_x) &&
+//       (object->m_x >= m_screen_scrolled - object_x))
+//    {
+//      if(!object->exists())
+//        object->create(get_unoccupied_sprite_id());
+//      object->move(m_screen_scrolled);
+//    }
+//    // object is off screen, make sure it is destroyed.
+//    else
+//    {
+//      if(object->exists())
+//      {
+//        int sprite_id = object->get_sprite_id();
+//        object->destroy();
+//        m_occupied_sprites[sprite_id] = 0;
+//      }
+//    }
+//  }
+}
+
+//--------------------------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 bool cScrollEngine::update()
 {
   SDL_FillRect(m_screen,NULL,0x000000);
@@ -95,22 +187,11 @@ bool cScrollEngine::update()
     }
   }
 
-  if(KEYS[SDLK_LEFT])
-  {
-    m_destination->x--;
-    if(m_destination->x < 0)
-      m_destination->x = 0;
-    m_char = m_robo1;
-  }
-  if(KEYS[SDLK_RIGHT])
-  {
-    m_destination->x++;
-//    if((m_destination->x+m_destination->w) > SCREEN_SIZE)
-//      m_destination->x = SCREEN_SIZE-m_destination->w;
-    m_char = m_robo2;
-  }
+  check_for_player_movement();
+//  check_for_collisions();
+  check_for_screen_scrolling();
 
-  printf("%d %d\n", m_destination->x, m_destination->y);
+  //printf("%d %d\n", m_destination->x, m_destination->y);
   //Apply image to screen
   SDL_BlitSurface(m_bg, m_destination, m_screen, NULL);
   SDL_BlitSurface( m_char, NULL, m_screen, NULL );
@@ -121,7 +202,8 @@ bool cScrollEngine::update()
   return m_game_running;
 }
 
-
+//--------------------------------------------------------------------------------------------------
+//--------------------------------------------------------------------------------------------------
 void cScrollEngine::render()
 {
 }
